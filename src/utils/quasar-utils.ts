@@ -57,15 +57,47 @@ export function extractStylesAndProps(node: QuasarNode) {
   // Extrair atributos do nó
   if (node.attributes) {
     Object.entries(node.attributes).forEach(([attr, value]) => {
-      // Props do Quasar ou atributos personalizados v-model, :value, etc.
-      if (attr.startsWith(':') || attr.startsWith('v-')) {
-        const propName = attr.replace(/^[v:][-:]?/, '');
+      // Props dinamicas do Vue (v-bind ou :prop)
+      if (attr.startsWith(':') || attr.startsWith('v-bind:')) {
+        const propName = attr.replace(/^[v:][-:]?bind:?/, '');
         props[propName] = value;
-      } else if (attr === 'style') {
+        
+        // Tentar extrair valores literais de props dinâmicas
+        if (value.startsWith("'") && value.endsWith("'")) {
+          // Valor literal entre aspas simples
+          props[propName] = value.slice(1, -1);
+        } else if (value.startsWith('"') && value.endsWith('"')) {
+          // Valor literal entre aspas duplas
+          props[propName] = value.slice(1, -1);
+        }
+      } 
+      // Props booleanas (sem valor)
+      else if (attr === value || value === '' || value === 'true') {
+        props[attr] = 'true';
+      }
+      // Props normais
+      else if (attr === 'style') {
         const styleObj = parseInlineStyles(value);
         Object.assign(styles, styleObj);
       } else if (attr === 'class') {
         props['class'] = value;
+        
+        // Processar classes Quasar importantes
+        const classes = value.split(/\s+/).filter(c => c);
+        for (const className of classes) {
+          // Extrair propriedades específicas de classes
+          if (className.startsWith('text-')) {
+            if (className === 'text-center' || className === 'text-right' || 
+                className === 'text-left' || className === 'text-justify') {
+              styles['textAlign'] = className.replace('text-', '');
+            } else if (className.match(/^text-([a-h][1-6]|body[12]|subtitle[12]|caption|overline)$/)) {
+              // Extrair tamanho de fonte e peso
+              const typographyStyles = getTypographyStyles(className);
+              Object.assign(styles, typographyStyles);
+            }
+          }
+          // Processar outras classes específicas...
+        }
       } else {
         props[attr] = value;
       }
@@ -73,6 +105,79 @@ export function extractStylesAndProps(node: QuasarNode) {
   }
   
   return { props, styles };
+}
+
+/**
+ * Obtém estilos de tipografia com base na classe de texto do Quasar
+ */
+function getTypographyStyles(className: string): Record<string, any> {
+  const styles: Record<string, any> = {};
+  
+  switch (className) {
+    case 'text-h1':
+      styles.fontSize = 48;
+      styles.fontWeight = 'bold';
+      styles.letterSpacing = -0.5;
+      break;
+    case 'text-h2':
+      styles.fontSize = 40;
+      styles.fontWeight = 'bold';
+      styles.letterSpacing = -0.4;
+      break;
+    case 'text-h3':
+      styles.fontSize = 34;
+      styles.fontWeight = 'bold';
+      styles.letterSpacing = -0.3;
+      break;
+    case 'text-h4':
+      styles.fontSize = 28;
+      styles.fontWeight = 'bold';
+      styles.letterSpacing = -0.2;
+      break;
+    case 'text-h5':
+      styles.fontSize = 24;
+      styles.fontWeight = 'bold';
+      styles.letterSpacing = -0.1;
+      break;
+    case 'text-h6':
+      styles.fontSize = 20;
+      styles.fontWeight = 'bold';
+      styles.letterSpacing = 0;
+      break;
+    case 'text-subtitle1':
+      styles.fontSize = 16;
+      styles.fontWeight = 'medium';
+      styles.letterSpacing = 0.15;
+      break;
+    case 'text-subtitle2':
+      styles.fontSize = 14;
+      styles.fontWeight = 'medium';
+      styles.letterSpacing = 0.1;
+      break;
+    case 'text-body1':
+      styles.fontSize = 16;
+      styles.fontWeight = 'regular';
+      styles.letterSpacing = 0.5;
+      break;
+    case 'text-body2':
+      styles.fontSize = 14;
+      styles.fontWeight = 'regular';
+      styles.letterSpacing = 0.25;
+      break;
+    case 'text-caption':
+      styles.fontSize = 12;
+      styles.fontWeight = 'regular';
+      styles.letterSpacing = 0.4;
+      break;
+    case 'text-overline':
+      styles.fontSize = 10;
+      styles.fontWeight = 'medium';
+      styles.letterSpacing = 1.5;
+      styles.textTransform = 'uppercase';
+      break;
+  }
+  
+  return styles;
 }
 
 function parseInlineStyles(styleString: string) {

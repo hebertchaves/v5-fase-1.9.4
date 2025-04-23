@@ -104,38 +104,200 @@ export function setNodeSize(node: SceneNode, width: number, height?: number) {
 /**
  * Aplica estilos a um nó do Figma
  */
-export function applyStylesToFigmaNode(node: any, styles: Record<string, any>) {
+export function applyStylesToFigmaNode(node: SceneNode, styles: Record<string, any>) {
   if (!styles || typeof styles !== 'object') return;
   
-  // Processa cada propriedade de estilo
-  Object.entries(styles).forEach(([key, value]) => {
-    try {
-      // Propriedades especiais que precisam de tratamento específico
-      if (key === 'fills') {
-        node.fills = value;
-      } else if (key === 'strokes') {
-        node.strokes = value;
-      } else if (key === 'effects') {
-        node.effects = value;
-      } else if (key === 'fontName') {
-        // Não aplicar fontName aqui - deve ser feito após carregar a fonte
-      } else if (key === 'fontColor' && node.fills && Array.isArray(node.fills)) {
-        // Aplicar cor de texto mantendo outros parâmetros de fill
-        const fills = [...node.fills];
-        if (fills.length > 0 && fills[0].type === 'SOLID') {
-          fills[0].color = value;
-          node.fills = fills;
-        } else {
-          node.fills = [{ type: 'SOLID', color: value }];
+  try {
+    // Processar cada propriedade de estilo
+    Object.entries(styles).forEach(([key, value]) => {
+      try {
+        // Propriedades especiais que precisam de tratamento específico
+        if (key === 'fills') {
+          if ('fills' in node) {
+            node.fills = value;
+          }
+        } else if (key === 'strokes') {
+          if ('strokes' in node) {
+            node.strokes = value;
+          }
+        } else if (key === 'effects') {
+          if ('effects' in node) {
+            node.effects = value;
+          }
+        } else if (key === 'fontName') {
+          // Não aplicar fontName aqui - deve ser feito após carregar a fonte
+        } else if (key === 'fontColor' && 'fills' in node) {
+          // Aplicar cor de texto mantendo outros parâmetros de fill
+          const fills = [...(node.fills as Paint[])];
+          if (fills.length > 0 && fills[0].type === 'SOLID') {
+            fills[0].color = value;
+            node.fills = fills;
+          } else {
+            node.fills = [{ type: 'SOLID', color: value }];
+          }
+        } else if (key === 'textAlign' && 'textAlignHorizontal' in node) {
+          // Mapear alinhamento de texto
+          const alignMap: Record<string, TextAlignHorizontal> = {
+            'left': 'LEFT',
+            'center': 'CENTER',
+            'right': 'RIGHT',
+            'justify': 'JUSTIFIED'
+          };
+          
+          if (alignMap[value]) {
+            node.textAlignHorizontal = alignMap[value];
+          }
+        } else if (key === 'fontWeight' && node.type === 'TEXT') {
+          // Será tratado separadamente
+          applyFontWeight(node, value);
+        } else if (key === 'letterSpacing' && 'letterSpacing' in node) {
+          // Aplicar espaçamento entre letras
+          const spacing = parseFloat(value);
+          if (!isNaN(spacing)) {
+            node.letterSpacing = {
+              value: spacing,
+              unit: 'PIXELS'
+            };
+          }
+        } else if (key === 'lineHeight' && 'lineHeight' in node) {
+          // Aplicar altura da linha
+          const height = parseFloat(value);
+          if (!isNaN(height)) {
+            node.lineHeight = {
+              value: height,
+              unit: 'PIXELS'
+            };
+          }
+        } else if (key === 'textTransform' && 'textCase' in node) {
+          // Mapear transformação de texto
+          const caseMap: Record<string, TextCase> = {
+            'uppercase': 'UPPER',
+            'lowercase': 'LOWER',
+            'capitalize': 'TITLE'
+          };
+          
+          if (caseMap[value]) {
+            node.textCase = caseMap[value];
+          }
+        } else if (key === 'opacity' && 'opacity' in node) {
+          // Aplicar opacidade
+          const opacity = parseFloat(value);
+          if (!isNaN(opacity)) {
+            node.opacity = Math.max(0, Math.min(1, opacity));
+          }
+        } else if (key === 'cornerRadius' && 'cornerRadius' in node) {
+          // Aplicar raio de canto
+          const radius = parseFloat(value);
+          if (!isNaN(radius)) {
+            node.cornerRadius = radius;
+          }
+        } else if (key.startsWith('padding') && key in node) {
+          // Aplicar padding
+          const padding = parseFloat(value);
+          if (!isNaN(padding)) {
+            (node as any)[key] = padding;
+          }
+        } else if (key.startsWith('margin')) {
+          // Não podemos aplicar margin diretamente no Figma
+          // Podemos ajustar a posição, mas isso é complexo
+        } else if (key === 'width' && 'resize' in node) {
+          // Aplicar largura
+          const width = parseFloat(value);
+          if (!isNaN(width)) {
+            node.resize(width, node.height);
+          }
+        } else if (key === 'height' && 'resize' in node) {
+          // Aplicar altura
+          const height = parseFloat(value);
+          if (!isNaN(height)) {
+            node.resize(node.width, height);
+          }
+        } else if (key in node) {
+          // Para todas as outras propriedades, tentar aplicar diretamente
+          (node as any)[key] = value;
         }
-      } else {
-        // Tentar aplicar a propriedade diretamente
-        node[key] = value;
+      } catch (error) {
+        console.warn(`Não foi possível aplicar a propriedade ${key} ao nó:`, error);
       }
-    } catch (error) {
-      console.warn(`Não foi possível aplicar a propriedade ${key} ao nó:`, error);
+    });
+  } catch (error) {
+    console.error('Erro ao aplicar estilos:', error);
+  }
+}
+
+/**
+ * Aplica configuração de peso de fonte a um nó de texto
+ */
+async function applyFontWeight(node: TextNode, weight: string | number) {
+  let fontStyle = 'Regular';
+  
+  if (weight === 'bold' || weight === 700 || weight === '700') {
+    fontStyle = 'Bold';
+  } else if (weight === 'medium' || weight === 500 || weight === '500') {
+    fontStyle = 'Medium';
+  }
+  
+  try {
+    const currentFont = node.fontName || { family: 'Inter', style: 'Regular' };
+    await figma.loadFontAsync({ family: currentFont.family, style: fontStyle });
+    node.fontName = { family: currentFont.family, style: fontStyle };
+  } catch (error) {
+    console.warn(`Não foi possível aplicar peso de fonte:`, error);
+    
+    // Tentar carregar a fonte Inter como fallback
+    try {
+      await figma.loadFontAsync({ family: 'Inter', style: fontStyle });
+      node.fontName = { family: 'Inter', style: fontStyle };
+    } catch (fallbackError) {
+      console.error('Erro ao carregar fonte fallback:', fallbackError);
     }
-  });
+  }
+}
+
+/**
+ * Tenta encontrar uma propriedade equivalente no nó Figma
+ */
+function findEquivalentProp(node: any, key: string): string | null {
+  // Mapeamento de propriedades CSS/JS para propriedades Figma
+  const propMappings: Record<string, string> = {
+    // Layout
+    'display': 'layoutMode',
+    'flex-direction': 'layoutMode',
+    'align-items': 'counterAxisAlignItems',
+    'justify-content': 'primaryAxisAlignItems',
+    'flex-wrap': 'layoutWrap',
+    
+    // Espaçamento
+    'padding': 'padding',
+    'margin': 'margin',
+    
+    // Texto
+    'font-size': 'fontSize',
+    'font-family': 'fontName',
+    'text-align': 'textAlignHorizontal',
+    'line-height': 'lineHeight',
+    'letter-spacing': 'letterSpacing',
+    'text-decoration': 'textDecoration',
+    
+    // Cores
+    'color': 'fills',
+    'background-color': 'fills',
+    'border-color': 'strokes',
+    
+    // Bordas
+    'border-width': 'strokeWeight',
+    'border-radius': 'cornerRadius',
+    
+    // Dimensões
+    'width': 'width',
+    'height': 'height',
+    'min-width': 'minWidth',
+    'min-height': 'minHeight',
+    'max-width': 'maxWidth',
+    'max-height': 'maxHeight'
+  };
+  
+  return propMappings[key] || null;
 }
 
 /**
